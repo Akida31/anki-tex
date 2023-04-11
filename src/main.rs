@@ -8,10 +8,12 @@
 use anki_tex::*;
 use clap::Parser;
 use color_eyre::{
-    eyre::{eyre, Context, Result},
+    eyre::{eyre, Result},
     Help,
 };
 use notify::{Event, EventKind, RecursiveMode, Watcher};
+use regex::Regex;
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     fs::read_to_string,
@@ -310,6 +312,10 @@ fn create_template(config: &Config, path: &Path, force: bool) -> Result<()> {
 
     let (header, footer) = get_header_and_footer(config)?;
 
+    if config.is_ignored(&path.to_string_lossy()) {
+        return Err(eyre!("template file is excluded"));
+    }
+
     if path.is_file() {
         if force {
             warn!("overwriting file {}", path.to_string_lossy());
@@ -475,6 +481,9 @@ fn update_change(
     file: &Path,
     add_generated: bool,
 ) -> Result<()> {
+    if config.is_ignored(&file.to_string_lossy()) {
+        return Ok(());
+    }
     if file.is_dir() {
         debug!(
             "{} is a directory. Updating children instead",
@@ -489,7 +498,8 @@ fn update_change(
 
         return Ok(());
     }
-    let content = read_to_string(file).context("while reading file")?;
+    let content = read_to_string(&file)
+        .with_note(|| eyre!("while reading file {}", file.to_string_lossy()))?;
     let new_hash = fasthash::metro::hash64(&content);
     if new_hash != state.last_hash {
         state.last_hash = new_hash;
@@ -497,6 +507,7 @@ fn update_change(
         debug!("nothing changed");
         return Ok(());
     }
+    info!("updating changes from {}", file.to_string_lossy());
     state.reload()?;
 
     let (header, _) = get_header_and_footer(config)?;
@@ -685,13 +696,61 @@ enum Commands {
     Crs,
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
+struct RegexString {
+    re: Regex,
+    re_str: String,
+}
+
+impl<'de> Deserialize<'de> for RegexString {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let re_str: String = serde::Deserialize::deserialize(deserializer)?;
+
+        let re = Regex::new(&re_str).map_err(D::Error::custom)?;
+
+        Ok(RegexString { re, re_str })
+    }
+}
+
+#[derive(Default, serde::Deserialize)]
 struct Config {
     path: Option<PathBuf>,
     header_file: Option<PathBuf>,
     footer_file: Option<PathBuf>,
+    #[serde(default)]
+    file_include: Vec<RegexString>,
+    #[serde(default)]
+    file_exclude: Vec<RegexString>,
     // For internal usage only. Will be set everytime.
     __config_dir: Option<PathBuf>,
+}
+
+impl Config {
+    fn is_ignored(&self, path: &str) -> bool {
+        for RegexString { re, re_str } in &self.file_include {
+            if !re.is_match(path) {
+                info!(
+                    "ignoring {} because it is not included (regex={})",
+                    path, re_str
+                );
+                return true;
+            }
+        }
+        for RegexString { re, re_str } in &self.file_exclude {
+            if re.is_match(path) {
+                info!(
+                    "ignoring {} because it is excluded (regex={})",
+                    path, re_str
+                );
+                return true;
+            }
+        }
+        false
+    }
 }
 
 fn main() -> Result<()> {
