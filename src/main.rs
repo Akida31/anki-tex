@@ -1,5 +1,9 @@
 #![warn(clippy::perf)]
-#![allow(clippy::uninlined_format_args, clippy::missing_const_for_fn, clippy::redundant_pub_crate)]
+#![allow(
+    clippy::uninlined_format_args,
+    clippy::missing_const_for_fn,
+    clippy::redundant_pub_crate
+)]
 
 use anki_tex::*;
 use clap::Parser;
@@ -275,7 +279,7 @@ impl PartialEq for Note {
     }
 }
 
-fn get_header_and_footer(config: &Option<Config>) -> Result<(String, String)> {
+fn get_header_and_footer(config: &Config) -> Result<(String, String)> {
     let (header_path, footer_path) = get_template_files(config);
     let header = if header_path.is_file() {
         read_to_string(&header_path).with_note(|| {
@@ -301,7 +305,7 @@ fn get_header_and_footer(config: &Option<Config>) -> Result<(String, String)> {
     Ok((header, footer))
 }
 
-fn create_template(config: &Option<Config>, path: &Path, force: bool) -> Result<()> {
+fn create_template(config: &Config, path: &Path, force: bool) -> Result<()> {
     use std::io::Write;
 
     let (header, footer) = get_header_and_footer(config)?;
@@ -467,7 +471,7 @@ fn fmt_content(content: &String) -> String {
 
 fn update_change(
     state: &mut State,
-    config: &Option<Config>,
+    config: &Config,
     file: &Path,
     add_generated: bool,
 ) -> Result<()> {
@@ -561,7 +565,7 @@ fn update_change(
     Ok(())
 }
 
-fn watch(config: &Option<Config>, file: PathBuf, add_generated: bool) -> Result<()> {
+fn watch(config: &Config, file: PathBuf, add_generated: bool) -> Result<()> {
     let mut state = State::new()?;
     let file_c = file.clone();
     update_change(&mut state, config, &file, add_generated)?;
@@ -602,13 +606,22 @@ fn watch(config: &Option<Config>, file: PathBuf, add_generated: bool) -> Result<
     Ok(())
 }
 
-fn get_template_files(config: &Option<Config>) -> (PathBuf, PathBuf) {
-    let (header_path, footer_path) = match config {
-        Some(config) => (config.header_file.clone(), config.footer_file.clone()),
-        None => (None, None),
-    };
-    let header_path = header_path.unwrap_or_else(|| "header_template.tex".into());
-    let footer_path = footer_path.unwrap_or_else(|| "footer_template.tex".into());
+fn get_template_files(config: &Config) -> (PathBuf, PathBuf) {
+    let mut header_path = config
+        .header_file
+        .clone()
+        .unwrap_or_else(|| "header_template.tex".into());
+    let mut footer_path = config
+        .footer_file
+        .clone()
+        .unwrap_or_else(|| "footer_template.tex".into());
+
+    if header_path.is_relative() {
+        header_path = config.__config_dir.as_ref().unwrap().join(header_path);
+    }
+    if footer_path.is_relative() {
+        footer_path = config.__config_dir.as_ref().unwrap().join(footer_path);
+    }
 
     (header_path, footer_path)
 }
@@ -672,11 +685,13 @@ enum Commands {
     Crs,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Config {
     path: Option<PathBuf>,
     header_file: Option<PathBuf>,
     footer_file: Option<PathBuf>,
+    // For internal usage only. Will be set everytime.
+    __config_dir: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -701,12 +716,12 @@ fn main() -> Result<()> {
     }
     let config_path = config_dir.join("config.toml");
 
-    let config = if !config_path.is_file() {
+    let mut config: Config = if !config_path.is_file() {
         info!(
             "no config file found. You can create one at {}",
             config_path.to_string_lossy()
         );
-        None
+        Default::default()
     } else {
         let config_text = read_to_string(&config_path).with_note(|| {
             eyre!(
@@ -714,18 +729,18 @@ fn main() -> Result<()> {
                 config_path.to_string_lossy()
             )
         })?;
-        let config: Config = toml::from_str(&config_text).with_note(|| {
+        toml::from_str(&config_text).with_note(|| {
             eyre!(
                 "while parsing config file from {}",
                 config_path.to_string_lossy()
             )
-        })?;
-
-        // update the args
-        args.path = args.path.or_else(|| config.path.clone());
-
-        Some(config)
+        })?
     };
+
+    config.__config_dir = Some(config_dir.to_path_buf());
+
+    // update the args
+    args.path = args.path.or_else(|| config.path.clone());
 
     let path = args.path.unwrap_or_else(|| "anki.tex".into());
 
