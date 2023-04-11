@@ -1,4 +1,7 @@
-use anki::*;
+#![warn(clippy::perf)]
+#![allow(clippy::uninlined_format_args, clippy::missing_const_for_fn, clippy::redundant_pub_crate)]
+
+use anki_tex::*;
 use clap::Parser;
 use color_eyre::{
     eyre::{eyre, Context, Result},
@@ -224,10 +227,28 @@ impl Note {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MatchUnescape(String);
+
+impl From<&String> for MatchUnescape {
+    fn from(value: &String) -> Self {
+        value.as_str().into()
+    }
+}
+
+impl From<&str> for MatchUnescape {
+    fn from(s: &str) -> Self {
+        let s = s.replace(|x: char| x.is_whitespace(), "");
+        let s = s.replace("&gt;", ">");
+        let s = s.replace("&lt;", "<");
+        Self(s)
+    }
+}
+
 fn escape(s: &str) -> String {
-    let s = s.replace(|x: char| x.is_whitespace(), "");
-    let s = s.replace("&gt;", ">");
-    s.replace("&lt;", "<")
+    let s = s.replace('>', "&gt;");
+
+    s.replace('<', "&lt;")
 }
 
 impl PartialEq for Note {
@@ -239,13 +260,13 @@ impl PartialEq for Note {
             .fields
             .iter()
             .filter(|(_, v)| !v.is_empty())
-            .map(|(k, v)| (escape(k), escape(v)))
+            .map(|(k, v)| (MatchUnescape::from(k), MatchUnescape::from(v)))
             .collect::<HashSet<_>>();
         let b_fields = other
             .fields
             .iter()
             .filter(|(_, v)| !v.is_empty())
-            .map(|(k, v)| (escape(k), escape(v)))
+            .map(|(k, v)| (MatchUnescape::from(k), MatchUnescape::from(v)))
             .collect::<HashSet<_>>();
         let fields_match = a_fields == b_fields;
 
@@ -260,8 +281,36 @@ impl PartialEq for Note {
     }
 }
 
-fn create_template(path: &Path, force: bool) -> Result<()> {
+fn get_header_and_footer(config: &Option<Config>) -> Result<(String, String)> {
+    let (header_path, footer_path) = get_template_files(config);
+    let header = if header_path.is_file() {
+        read_to_string(&header_path).with_note(|| {
+            eyre!(
+                "while reading header template from {}",
+                header_path.to_string_lossy()
+            )
+        })?
+    } else {
+        HEADER.to_owned()
+    };
+    let footer = if footer_path.is_file() {
+        read_to_string(&footer_path).with_note(|| {
+            eyre!(
+                "while reading footer template from {}",
+                header_path.to_string_lossy()
+            )
+        })?
+    } else {
+        FOOTER.to_owned()
+    };
+
+    Ok((header, footer))
+}
+
+fn create_template(config: &Option<Config>, path: &Path, force: bool) -> Result<()> {
     use std::io::Write;
+
+    let (header, footer) = get_header_and_footer(config)?;
 
     if path.is_file() {
         if force {
@@ -280,9 +329,9 @@ fn create_template(path: &Path, force: bool) -> Result<()> {
         ));
     }
     let mut file = std::fs::File::create(path)?;
-    file.write_all(HEADER.as_bytes())?;
+    file.write_all(header.as_bytes())?;
     file.write_all(b"\n% Add your content here\n\n")?;
-    file.write_all(FOOTER.as_bytes())?;
+    file.write_all(footer.as_bytes())?;
 
     Ok(())
 }
@@ -296,9 +345,9 @@ fn get_longest_common_prefix(a: &str, b: &str) -> Option<usize> {
     None
 }
 
-fn get_content(content: String) -> Result<Vec<Note>> {
+fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
     let content = content.trim();
-    let content = match content.strip_prefix(HEADER) {
+    let content = match content.strip_prefix(header) {
         Some(content) => content,
         None => {
             return Err(eyre!("file does not start with required header")
@@ -308,19 +357,19 @@ fn get_content(content: String) -> Result<Vec<Note>> {
                         &content[..content.len().min(50)]
                     )
                 })
-                .with_note(|| match get_longest_common_prefix(content, HEADER) {
+                .with_note(|| match get_longest_common_prefix(content, header) {
                     Some(i) => {
                         format!(
                             "they differ at char {}: required {} got {}",
                             i,
                             content.chars().nth(i).unwrap(),
-                            HEADER.chars().nth(i).unwrap(),
+                            header.chars().nth(i).unwrap(),
                         )
                     }
                     None => {
                         format!(
                             "file is too short, expected min {} characters but it has {}",
-                            HEADER.len(),
+                            header.len(),
                             content.len(),
                         )
                     }
@@ -422,7 +471,26 @@ fn fmt_content(content: &String) -> String {
     )
 }
 
-fn update_change(state: &mut State, file: &Path, add_generated: bool) -> Result<()> {
+fn update_change(
+    state: &mut State,
+    config: &Option<Config>,
+    file: &Path,
+    add_generated: bool,
+) -> Result<()> {
+    if file.is_dir() {
+        debug!(
+            "{} is a directory. Updating children instead",
+            file.to_string_lossy()
+        );
+        let children = std::fs::read_dir(file)
+            .with_note(|| eyre!("while collecting children of {}", file.to_string_lossy()))?;
+        for read_dir in children {
+            let file = read_dir?.path();
+            update_change(state, config, &file, add_generated)?;
+        }
+
+        return Ok(());
+    }
     let content = read_to_string(file).context("while reading file")?;
     let new_hash = fasthash::metro::hash64(&content);
     if new_hash != state.last_hash {
@@ -433,9 +501,11 @@ fn update_change(state: &mut State, file: &Path, add_generated: bool) -> Result<
     }
     state.reload()?;
 
+    let (header, _) = get_header_and_footer(config)?;
+
     let mut added_notes = 0;
 
-    for mut note in get_content(content)? {
+    for mut note in get_content(content, &header)? {
         // TODO id
         if !state.deck_names.contains(&note.deck) {
             error!("create note with invalid deck name {}", note.deck);
@@ -473,7 +543,7 @@ fn update_change(state: &mut State, file: &Path, add_generated: bool) -> Result<
         );
 
         // TODO use `multi` api or `add_notes`
-        let id = add_note(&anki::Note {
+        let id = add_note(&anki_tex::Note {
             deck_name: note.deck.clone(),
             model_name: note.model.clone(),
             fields: note.fields.clone(),
@@ -497,15 +567,15 @@ fn update_change(state: &mut State, file: &Path, add_generated: bool) -> Result<
     Ok(())
 }
 
-fn watch(file: PathBuf, add_generated: bool) -> Result<()> {
+fn watch(config: &Option<Config>, file: PathBuf, add_generated: bool) -> Result<()> {
     let mut state = State::new()?;
     let file_c = file.clone();
-    update_change(&mut state, &file, add_generated)?;
+    update_change(&mut state, config, &file, add_generated)?;
 
     let (tx, rx) = std::sync::mpsc::channel();
 
     let mut watcher = notify::recommended_watcher(tx)?;
-    watcher.watch(&file_c, RecursiveMode::NonRecursive)?;
+    watcher.watch(&file_c, RecursiveMode::Recursive)?;
 
     info!("You can exit with Ctrl+C");
     for res in rx {
@@ -515,7 +585,7 @@ fn watch(file: PathBuf, add_generated: bool) -> Result<()> {
             EventKind::Create(_) => error!("file was created but should have existed before"),
             // TODO finer
             EventKind::Modify(_) => {
-                if let Err(e) = update_change(&mut state, &file, add_generated) {
+                if let Err(e) = update_change(&mut state, config, &file, add_generated) {
                     error!("{:#?}", e);
                 }
             }
@@ -523,10 +593,10 @@ fn watch(file: PathBuf, add_generated: bool) -> Result<()> {
                 error!("unknown file watcher event: {:?}", event);
             }
             EventKind::Remove(_) => {
-                watcher.watch(&file_c, RecursiveMode::NonRecursive)?;
+                watcher.watch(&file_c, RecursiveMode::Recursive)?;
                 if !file.is_file() {
                     error!("file was removed.")
-                } else if let Err(e) = update_change(&mut state, &file, add_generated) {
+                } else if let Err(e) = update_change(&mut state, config, &file, add_generated) {
                     error!("{}", e);
                 }
             }
@@ -538,13 +608,26 @@ fn watch(file: PathBuf, add_generated: bool) -> Result<()> {
     Ok(())
 }
 
+fn get_template_files(config: &Option<Config>) -> (PathBuf, PathBuf) {
+    let (header_path, footer_path) = match config {
+        Some(config) => (config.header_file.clone(), config.footer_file.clone()),
+        None => (None, None),
+    };
+    let header_path = header_path.unwrap_or_else(|| "header_template.tex".into());
+    let footer_path = footer_path.unwrap_or_else(|| "footer_template.tex".into());
+
+    (header_path, footer_path)
+}
+
 /// Create Anki notes from file
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Path of the file to read from
-    #[arg(short, long, default_value = "anki.tex")]
-    path: PathBuf,
+    /// Path of the file to read from.
+    ///
+    /// If no value is given and no config file exists `anki.tex` will be used.
+    #[arg(short, long)]
+    path: Option<PathBuf>,
 
     /// Log Level
     #[arg(long, default_value = "info")]
@@ -568,6 +651,8 @@ enum Commands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Save the template header and footer to config path
+    SaveTemplate,
     /// Watch for changes and create new notes
     Watch,
     /// Create new notes
@@ -593,10 +678,17 @@ enum Commands {
     Crs,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Config {
+    path: Option<PathBuf>,
+    header_file: Option<PathBuf>,
+    footer_file: Option<PathBuf>,
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     let builder = FmtSubscriber::builder().with_max_level(args.log_level);
 
@@ -607,12 +699,48 @@ fn main() -> Result<()> {
         tracing::subscriber::set_global_default(builder.finish())?;
     }
 
+    let project_dirs = directories_next::ProjectDirs::from("", "akida", "anki-tex")
+        .expect("no valid home directory path could be found");
+    let config_dir = project_dirs.config_dir();
+    if !config_dir.is_dir() {
+        std::fs::create_dir_all(config_dir)?;
+    }
+    let config_path = config_dir.join("config.toml");
+
+    let config = if !config_path.is_file() {
+        info!(
+            "no config file found. You can create one at {}",
+            config_path.to_string_lossy()
+        );
+        None
+    } else {
+        let config_text = read_to_string(&config_path).with_note(|| {
+            eyre!(
+                "while reading config file from {}",
+                config_path.to_string_lossy()
+            )
+        })?;
+        let config: Config = toml::from_str(&config_text).with_note(|| {
+            eyre!(
+                "while parsing config file from {}",
+                config_path.to_string_lossy()
+            )
+        })?;
+
+        // update the args
+        args.path = args.path.or_else(|| config.path.clone());
+
+        Some(config)
+    };
+
+    let path = args.path.unwrap_or_else(|| "anki.tex".into());
+
     match args.subcommand {
-        Commands::Template { force } => create_template(&args.path, force)?,
-        Commands::Watch => watch(args.path, args.add_generated)?,
+        Commands::Template { force } => create_template(&config, &path, force)?,
+        Commands::Watch => watch(&config, path, args.add_generated)?,
         Commands::Create => {
             let mut state = State::new()?;
-            update_change(&mut state, &args.path, args.add_generated)?;
+            update_change(&mut state, &config, &path, args.add_generated)?;
         }
         Commands::GetDecks => {
             let names = get_deck_names()?;
@@ -657,7 +785,7 @@ fn main() -> Result<()> {
         Commands::Crs => {
             // TODO remove duplication
             let mut state = State::new()?;
-            update_change(&mut state, &args.path, args.add_generated)?;
+            update_change(&mut state, &config, &path, args.add_generated)?;
             info!("rendering all latex");
             if render_all_latex()? {
                 println!("Success");
@@ -667,6 +795,24 @@ fn main() -> Result<()> {
             info!("syncing all notes");
             render_all_latex()?;
             println!("Success");
+        }
+        Commands::SaveTemplate => {
+            let (header_path, footer_path) = get_template_files(&config);
+            std::fs::write(&header_path, HEADER).with_note(|| {
+                eyre!(
+                    "while writing header template to {}",
+                    header_path.to_string_lossy()
+                )
+            })?;
+            info!("wrote header template to {}", header_path.to_string_lossy());
+
+            std::fs::write(&footer_path, FOOTER).with_note(|| {
+                eyre!(
+                    "while writing footer template to {}",
+                    header_path.to_string_lossy()
+                )
+            })?;
+            info!("wrote footer template to {}", footer_path.to_string_lossy());
         }
     }
 
