@@ -245,12 +245,6 @@ impl From<&str> for MatchUnescape {
     }
 }
 
-fn escape(s: &str) -> String {
-    let s = s.replace('>', "&gt;");
-
-    s.replace('<', "&lt;")
-}
-
 impl PartialEq for Note {
     fn eq(&self, other: &Self) -> bool {
         let matching =
