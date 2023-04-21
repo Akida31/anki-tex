@@ -349,11 +349,47 @@ fn get_longest_common_prefix(a: &str, b: &str) -> Option<usize> {
     None
 }
 
+fn get_line_with_pos(text: &str, pos: usize) -> &str {
+    let mut offset = 0;
+    for line in text.lines() {
+        offset += line.len();
+        if offset >= pos {
+            return line;
+        }
+    }
+    ""
+}
+
 fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
     let content = content.trim();
     let content = match content.strip_prefix(header) {
         Some(content) => content,
         None => {
+            let longest_prefix = get_longest_common_prefix(content, header);
+            let longest_prefix_note = match longest_prefix {
+                Some(i) => {
+                    format!(
+                        "they differ at char {}: required `{}` got `{}`",
+                        i,
+                        content.chars().nth(i).unwrap(),
+                        header.chars().nth(i).unwrap(),
+                    )
+                }
+                None => {
+                    format!(
+                        "file is too short, expected min {} characters but it has {}",
+                        header.len(),
+                        content.len(),
+                    )
+                }
+            };
+            let (required_line, got_line) = match longest_prefix {
+                Some(i) => (
+                    format!("required line `{}`", get_line_with_pos(header, i)),
+                    format!("got line `{}`", get_line_with_pos(content, i)),
+                ),
+                None => Default::default(),
+            };
             return Err(eyre!("file does not start with required header")
                 .with_note(|| {
                     format!(
@@ -361,23 +397,9 @@ fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
                         &content[..content.len().min(50)]
                     )
                 })
-                .with_note(|| match get_longest_common_prefix(content, header) {
-                    Some(i) => {
-                        format!(
-                            "they differ at char {}: required {} got {}",
-                            i,
-                            content.chars().nth(i).unwrap(),
-                            header.chars().nth(i).unwrap(),
-                        )
-                    }
-                    None => {
-                        format!(
-                            "file is too short, expected min {} characters but it has {}",
-                            header.len(),
-                            content.len(),
-                        )
-                    }
-                }))
+                .note(longest_prefix_note)
+                .note(required_line)
+                .note(got_line));
         }
     };
     let content = match content.strip_suffix(FOOTER) {
