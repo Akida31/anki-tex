@@ -454,11 +454,11 @@ fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
             }
             Cmd::Next => {
                 let Some(deck) = current_deck.clone() else {
-                        return Err(eyre!("Select a deck before ending a note"));
-                    };
+                    return Err(eyre!("Select a deck before ending a note"));
+                };
                 let Some(model) = current_model.clone() else {
-                        return Err(eyre!("Select a model before ending a note"));
-                    };
+                    return Err(eyre!("Select a model before ending a note"));
+                };
                 if current_fields.is_empty() {
                     return Err(eyre!("Cannot add note without fields"));
                 }
