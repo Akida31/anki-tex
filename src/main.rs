@@ -501,7 +501,6 @@ fn update_change(
     state: &mut State,
     config: &Config,
     file: &Path,
-    add_generated: bool,
 ) -> Result<()> {
     if config.is_ignored(&file.to_string_lossy()) {
         return Ok(());
@@ -515,7 +514,7 @@ fn update_change(
             .with_note(|| eyre!("while collecting children of {}", file.to_string_lossy()))?;
         for read_dir in children {
             let file = read_dir?.path();
-            update_change(state, config, &file, add_generated)?;
+            update_change(state, config, &file)?;
         }
 
         return Ok(());
@@ -560,7 +559,7 @@ fn update_change(
             }
         }
 
-        if add_generated {
+        if config.add_generated {
             note.tags.push(String::from("generated"));
         }
 
@@ -598,10 +597,10 @@ fn update_change(
     Ok(())
 }
 
-fn watch(config: &Config, file: PathBuf, add_generated: bool) -> Result<()> {
+fn watch(config: &Config, file: PathBuf) -> Result<()> {
     let mut state = State::new()?;
     let file_c = file.clone();
-    update_change(&mut state, config, &file, add_generated)?;
+    update_change(&mut state, config, &file)?;
 
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -616,7 +615,7 @@ fn watch(config: &Config, file: PathBuf, add_generated: bool) -> Result<()> {
             EventKind::Create(_) => error!("file was created but should have existed before"),
             // TODO finer
             EventKind::Modify(_) => {
-                if let Err(e) = update_change(&mut state, config, &file, add_generated) {
+                if let Err(e) = update_change(&mut state, config, &file) {
                     error!("{:#?}", e);
                 }
             }
@@ -627,7 +626,7 @@ fn watch(config: &Config, file: PathBuf, add_generated: bool) -> Result<()> {
                 watcher.watch(&file_c, RecursiveMode::Recursive)?;
                 if !file.is_file() {
                     error!("file was removed.")
-                } else if let Err(e) = update_change(&mut state, config, &file, add_generated) {
+                } else if let Err(e) = update_change(&mut state, config, &file) {
                     error!("{}", e);
                 }
             }
@@ -754,6 +753,7 @@ struct ExternalConfig {
 struct Config {
     config: ExternalConfig,
     config_dir: PathBuf,
+    add_generated: bool,
 }
 
 impl Config {
@@ -826,6 +826,7 @@ fn main() -> Result<()> {
     let config = Config {
         config,
         config_dir: config_dir.to_path_buf(),
+        add_generated: args.add_generated,
     };
 
     // update the args
@@ -835,10 +836,10 @@ fn main() -> Result<()> {
 
     match args.subcommand {
         Commands::Template { force } => create_template(&config, &path, force)?,
-        Commands::Watch => watch(&config, path, args.add_generated)?,
+        Commands::Watch => watch(&config, path)?,
         Commands::Create => {
             let mut state = State::new()?;
-            update_change(&mut state, &config, &path, args.add_generated)?;
+            update_change(&mut state, &config, &path)?;
         }
         Commands::GetDecks => {
             let names = get_deck_names()?;
@@ -877,13 +878,13 @@ fn main() -> Result<()> {
         }
         Commands::Sync => {
             info!("syncing all notes");
-            render_all_latex()?;
+            sync()?;
             println!("Success");
         }
         Commands::Crs => {
             // TODO remove duplication
             let mut state = State::new()?;
-            update_change(&mut state, &config, &path, args.add_generated)?;
+            update_change(&mut state, &config, &path)?;
             info!("rendering all latex");
             if render_all_latex()? {
                 println!("Success");
@@ -891,7 +892,7 @@ fn main() -> Result<()> {
                 println!("Error :(");
             }
             info!("syncing all notes");
-            render_all_latex()?;
+            sync()?;
             println!("Success");
         }
         Commands::SaveTemplate => {
