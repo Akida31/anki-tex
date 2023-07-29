@@ -641,19 +641,21 @@ fn watch(config: &Config, file: PathBuf, add_generated: bool) -> Result<()> {
 
 fn get_template_files(config: &Config) -> (PathBuf, PathBuf) {
     let mut header_path = config
+        .config
         .header_file
         .clone()
         .unwrap_or_else(|| "header_template.tex".into());
     let mut footer_path = config
+        .config
         .footer_file
         .clone()
         .unwrap_or_else(|| "footer_template.tex".into());
 
     if header_path.is_relative() {
-        header_path = config.__config_dir.as_ref().unwrap().join(header_path);
+        header_path = config.config_dir.join(header_path);
     }
     if footer_path.is_relative() {
-        footer_path = config.__config_dir.as_ref().unwrap().join(footer_path);
+        footer_path = config.config_dir.join(footer_path);
     }
 
     (header_path, footer_path)
@@ -739,7 +741,7 @@ impl<'de> Deserialize<'de> for RegexString {
 }
 
 #[derive(Default, serde::Deserialize)]
-struct Config {
+struct ExternalConfig {
     path: Option<PathBuf>,
     header_file: Option<PathBuf>,
     footer_file: Option<PathBuf>,
@@ -747,13 +749,16 @@ struct Config {
     file_include: Vec<RegexString>,
     #[serde(default)]
     file_exclude: Vec<RegexString>,
-    // For internal usage only. Will be set everytime.
-    __config_dir: Option<PathBuf>,
+}
+
+struct Config {
+    config: ExternalConfig,
+    config_dir: PathBuf,
 }
 
 impl Config {
     fn is_ignored(&self, path: &str) -> bool {
-        for RegexString { re, re_str } in &self.file_include {
+        for RegexString { re, re_str } in &self.config.file_include {
             if !re.is_match(path) {
                 info!(
                     "ignoring {} because it is not included (regex={})",
@@ -762,7 +767,7 @@ impl Config {
                 return true;
             }
         }
-        for RegexString { re, re_str } in &self.file_exclude {
+        for RegexString { re, re_str } in &self.config.file_exclude {
             if re.is_match(path) {
                 info!(
                     "ignoring {} because it is excluded (regex={})",
@@ -797,7 +802,7 @@ fn main() -> Result<()> {
     }
     let config_path = config_dir.join("config.toml");
 
-    let mut config: Config = if !config_path.is_file() {
+    let config: ExternalConfig = if !config_path.is_file() {
         info!(
             "no config file found. You can create one at {}",
             config_path.to_string_lossy()
@@ -818,10 +823,13 @@ fn main() -> Result<()> {
         })?
     };
 
-    config.__config_dir = Some(config_dir.to_path_buf());
+    let config = Config {
+        config,
+        config_dir: config_dir.to_path_buf(),
+    };
 
     // update the args
-    args.path = args.path.or_else(|| config.path.clone());
+    args.path = args.path.or_else(|| config.config.path.clone());
 
     let path = args.path.unwrap_or_else(|| "anki.tex".into());
 
