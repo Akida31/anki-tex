@@ -55,6 +55,19 @@ pub fn request_multi<'a, T: Serialize + 'a, U: for<'de> Deserialize<'de> + std::
     res.into_iter().map(|r| r.get()).collect()
 }
 
+/// Returns
+/// - `id` if the note was created
+/// - `None` if the note wasn't created (e.g. duplicate)
+pub fn create_deck(deck: &str) -> Result<Option<usize>> {
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Params<'a> {
+        deck: &'a str,
+    }
+
+    request("createDeck", &Params {deck})
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DeckNames(pub Vec<String>);
 

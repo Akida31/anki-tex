@@ -68,7 +68,7 @@ fn get_all_matches(text: &str) -> Vec<(usize, Cmd, Option<regex::Captures>)> {
     locations
 }
 
-pub fn get_content(content: String) -> Result<Vec<Note>> {
+fn prepare_content(content: String) -> Result<String> {
     let content = content.trim();
     let content = match content.strip_prefix(HEADER) {
         Some(content) => content,
@@ -135,6 +135,30 @@ pub fn get_content(content: String) -> Result<Vec<Note>> {
         }
     }
 
+    Ok(content.to_string())
+}
+
+pub fn get_used_decks(content: String) -> Result<Vec<String>> {
+    let content = prepare_content(content)?;
+    // TODO use _start
+    let mut decks = Vec::new();
+    for (_start, cmd, cap) in get_all_matches(&content) {
+        match cmd {
+            Cmd::Deck => {
+                // TODO remove last unwrap
+                let new = cap.unwrap().get(1).unwrap().as_str();
+                decks.push(new.to_owned());
+            }
+            Cmd::Model | Cmd::Field | Cmd::Next | Cmd::Tag => {}
+        }
+    }
+
+    Ok(decks)
+}
+
+pub fn get_content(content: String) -> Result<Vec<Note>> {
+    let content = prepare_content(content)?;
+
     let mut current_deck = None;
     let mut current_model = None;
     let mut current_tags = Vec::new();
@@ -142,7 +166,7 @@ pub fn get_content(content: String) -> Result<Vec<Note>> {
     let mut completed_notes = Vec::new();
 
     // TODO use _start
-    for (_start, cmd, cap) in get_all_matches(content) {
+    for (_start, cmd, cap) in get_all_matches(&content) {
         match cmd {
             Cmd::Deck => {
                 // TODO remove last unwrap

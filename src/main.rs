@@ -15,7 +15,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use regex::Regex;
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::read_to_string,
     path::{Path, PathBuf},
 };
@@ -243,6 +243,7 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
         // TODO id
         if !state.deck_names.contains(&note.deck) {
             error!("create note with invalid deck name {}", note.deck);
+            info!("create all decks in the file with `anki-tex create-all-decks`");
             return Ok(());
         }
         let Some(model) = state.models.get(&note.model) else {
@@ -388,6 +389,8 @@ enum Commands {
     /// Create new notes
     #[clap(visible_alias = "c")]
     Create,
+    /// Create all decks in the file if they don't exist already
+    CreateAllDecks,
     /// Get all deck names
     GetDecks,
     /// Get all model names
@@ -486,11 +489,7 @@ impl Config {
     }
 
     fn is_ignored(&self, path: &str) -> bool {
-        if !self
-            .file_include
-            .iter()
-            .any(|r| r.re.is_match(path))
-        {
+        if !self.file_include.iter().any(|r| r.re.is_match(path)) {
             info!(
                 "ignoring {} because it is not included (regex={})",
                 path,
@@ -513,6 +512,53 @@ impl Config {
         }
         false
     }
+}
+
+fn create_all_decks(paths: &FilePaths) -> Result<()> {
+    let main_content = read_to_string(&paths.main)
+        .with_note(|| eyre!("while reading file {}", paths.main.to_string_lossy()))?;
+
+    debug!("parsing file for used decks");
+    let used_decks = parse_file::get_used_decks(main_content)?;
+
+    let used_decks = used_decks
+        .into_iter()
+        .flat_map(|full| {
+            let mut decks = Vec::new();
+            let mut prefix = String::new();
+
+            for part in full.split("::") {
+                if !prefix.is_empty() {
+                    prefix.push_str("::");
+                }
+                prefix.push_str(part);
+                decks.push(prefix.clone());
+            }
+
+            decks
+        })
+        .collect::<Vec<_>>();
+
+    debug!("collecting available decks from anki");
+    let available_decks: HashSet<_> = get_deck_names()?.0.into_iter().collect();
+
+    let mut created: HashSet<String> = HashSet::new();
+
+    for deck in used_decks {
+        if available_decks.contains(&deck) || created.contains(&deck) {
+            continue;
+        }
+        if api::create_deck(&deck)?.is_some() {
+            info!("created deck {}", deck);
+        }
+        assert!(created.insert(deck));
+    }
+
+    if created.is_empty() {
+        info!("All decks were already created")
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -592,6 +638,9 @@ fn main() -> Result<()> {
             } else {
                 println!("Error :(");
             }
+        }
+        Commands::CreateAllDecks => {
+            create_all_decks(&paths)?;
         }
         Commands::Sync => {
             info!("syncing all notes");
