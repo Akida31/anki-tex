@@ -497,11 +497,7 @@ fn fmt_content(content: &String) -> String {
     )
 }
 
-fn update_change(
-    state: &mut State,
-    config: &Config,
-    file: &Path,
-) -> Result<()> {
+fn update_change(state: &mut State, config: &Config, file: &Path) -> Result<()> {
     if config.is_ignored(&file.to_string_lossy()) {
         return Ok(());
     }
@@ -750,6 +746,41 @@ struct ExternalConfig {
     file_exclude: Vec<RegexString>,
 }
 
+impl ExternalConfig {
+    fn load() -> Result<(Self, PathBuf)> {
+        let project_dirs = directories_next::ProjectDirs::from("", "akida", "anki-tex")
+            .expect("no valid home directory path could be found");
+        let config_dir = project_dirs.config_dir();
+        if !config_dir.is_dir() {
+            std::fs::create_dir_all(config_dir)?;
+        }
+        let config_path = config_dir.join("config.toml");
+
+        let config: ExternalConfig = if !config_path.is_file() {
+            info!(
+                "no config file found. You can create one at {}",
+                config_path.to_string_lossy()
+            );
+            Default::default()
+        } else {
+            let config_text = read_to_string(&config_path).with_note(|| {
+                eyre!(
+                    "while reading config file from {}",
+                    config_path.to_string_lossy()
+                )
+            })?;
+            toml::from_str(&config_text).with_note(|| {
+                eyre!(
+                    "while parsing config file from {}",
+                    config_path.to_string_lossy()
+                )
+            })?
+        };
+
+        Ok((config, config_dir.to_path_buf()))
+    }
+}
+
 struct Config {
     config: ExternalConfig,
     config_dir: PathBuf,
@@ -794,38 +825,11 @@ fn main() -> Result<()> {
         tracing::subscriber::set_global_default(builder.finish())?;
     }
 
-    let project_dirs = directories_next::ProjectDirs::from("", "akida", "anki-tex")
-        .expect("no valid home directory path could be found");
-    let config_dir = project_dirs.config_dir();
-    if !config_dir.is_dir() {
-        std::fs::create_dir_all(config_dir)?;
-    }
-    let config_path = config_dir.join("config.toml");
-
-    let config: ExternalConfig = if !config_path.is_file() {
-        info!(
-            "no config file found. You can create one at {}",
-            config_path.to_string_lossy()
-        );
-        Default::default()
-    } else {
-        let config_text = read_to_string(&config_path).with_note(|| {
-            eyre!(
-                "while reading config file from {}",
-                config_path.to_string_lossy()
-            )
-        })?;
-        toml::from_str(&config_text).with_note(|| {
-            eyre!(
-                "while parsing config file from {}",
-                config_path.to_string_lossy()
-            )
-        })?
-    };
+    let (config, config_dir) = ExternalConfig::load()?;
 
     let config = Config {
         config,
-        config_dir: config_dir.to_path_buf(),
+        config_dir,
         add_generated: args.add_generated,
     };
 
