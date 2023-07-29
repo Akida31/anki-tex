@@ -3,15 +3,16 @@ use color_eyre::{Help, eyre::{eyre, Result}};
 use tracing::warn;
 use crate::Note;
 
-const ANKITEX: &str = include_str!("ankitex.sty");
+pub const ANKITEX: &str = include_str!("ankitex.sty");
+pub const CUSTOM_TEMPLATE: &str = include_str!("custom.sty");
 
-const HEADER: &str = r#"\documentclass{article}
+pub const HEADER: &str = r"\documentclass{article}
 \usepackage{ankitex}
 \usepackage{custom}
 
 \begin{document}
-"#;
-const FOOTER: &str = r"\end{document}";
+";
+pub const FOOTER: &str = r"\end{document}";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Cmd {
@@ -62,32 +63,32 @@ fn get_all_matches(text: &str) -> Vec<(usize, Cmd, Option<regex::Captures>)> {
     locations
 }
 
-pub fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
+pub fn get_content(content: String) -> Result<Vec<Note>> {
     let content = content.trim();
-    let content = match content.strip_prefix(header) {
+    let content = match content.strip_prefix(HEADER) {
         Some(content) => content,
         None => {
-            let longest_prefix = get_longest_common_prefix(content, header);
+            let longest_prefix = get_longest_common_prefix(content, HEADER);
             let longest_prefix_note = match longest_prefix {
                 Some(i) => {
                     format!(
                         "they differ at char {}: required `{}` got `{}`",
                         i,
                         content.chars().nth(i).unwrap(),
-                        header.chars().nth(i).unwrap(),
+                        HEADER.chars().nth(i).unwrap(),
                     )
                 }
                 None => {
                     format!(
                         "file is too short, expected min {} characters but it has {}",
-                        header.len(),
+                        HEADER.len(),
                         content.len(),
                     )
                 }
             };
             let (required_line, got_line) = match longest_prefix {
                 Some(i) => (
-                    format!("required line `{}`", get_line_with_pos(header, i)),
+                    format!("required line `{}`", get_line_with_pos(HEADER, i)),
                     format!("got line `{}`", get_line_with_pos(content, i)),
                 ),
                 None => Default::default(),
@@ -108,7 +109,7 @@ pub fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
         Some(content) => content,
         None => {
             return Err(
-                eyre!("file does not end with required header").with_note(|| {
+                eyre!("file does not end with required footer").with_note(|| {
                     format!(
                         "ended instead with: {}",
                         &content[content.len().max(50) - 50..]
@@ -117,6 +118,7 @@ pub fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
             )
         }
     };
+
     let mut current_deck = None;
     let mut current_model = None;
     let mut current_tags = Vec::new();

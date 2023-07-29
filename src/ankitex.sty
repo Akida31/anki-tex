@@ -1,0 +1,46 @@
+\ProvidesPackage{ankitex}
+
+% formatting and layout
+\usepackage[left=2.5cm, right=2.5cm, bottom=2.5cm]{geometry}
+\usepackage[onehalfspacing]{setspace}
+\setlength{\parindent}{0pt}
+
+% input/output language
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+
+% math packages
+\usepackage{amsmath, amsfonts, amsthm, amssymb, etoolbox, enumerate}
+
+\newcommand{\mysign}[2]{\phantom{|}\mathrel{\overset{\makebox[0pt]{\mbox{\tiny {#1}}}}{#2}}\phantom{|}}
+\newcommand{\myeq}[1]{\mysign{#1}{=}}
+\newcommand{\N}[0]{\mathbb{N}}
+\newcommand{\Z}[0]{\mathbb{Z}}
+\newcommand{\Q}[0]{\mathbb{Q}}
+\newcommand{\R}[0]{\mathbb{R}}
+\newcommand{\C}[0]{\mathbb{C}}
+\newcommand{\K}[0]{\mathbb{K}}
+\newcommand{\e}[0]{\varepsilon}
+\renewcommand{\Re}{\mathrm{Re}}
+\renewcommand{\Im}{\mathrm{Im}}
+\newcommand{\folge}[1]{\left(#1\right)_{n \in \N}}
+\newcommand{\ol}[1]{\overline{#1}}
+\newcommand*{\addrow}[1]{#1\\}
+\newcommand{\m}[1]{
+  \begin{pmatrix}
+    \forcsvlist\addrow{#1}
+  \end{pmatrix}}
+
+\newcommand{\deck}[1]{\Large{Deck: #1}}
+\newcommand{\model}[1]{\Large{Model: #1}}
+\newcommand{\next}[0]{\vspace{2ex}\rule{\textwidth}{1pt}\par\vspace{2ex}\addpenalty{-1000}}
+\renewcommand{\tag}[1]{\large{Tag #1}\par}
+\newcommand{\fields}[2]{\large{\underline{#1:}}\\#2\\}
+\newenvironment{field}[1]{\large{\underline{#1:}}\\}{\par}
+
+% Labels for items in (nested) enumerate (uses counters)
+\renewcommand{\labelenumi}{\roman{enumi})} % Default is arabic: 1.
+\renewcommand\labelenumii{\theenumii)} % Default is alph: (a)
+\renewcommand\labelenumiii{\arabic{\theenumi}.} % Default is roman: i.
+
