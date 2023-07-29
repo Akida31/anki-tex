@@ -15,7 +15,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 use regex::Regex;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::read_to_string,
     path::{Path, PathBuf},
 };
@@ -119,168 +119,6 @@ fn get_notes(query: &str) -> Result<Vec<Note>> {
         .collect()
 }
 
-const HEADER: &str = r#"\documentclass{article}
-
-% formatting and layout
-\usepackage[left=2.5cm, right=2.5cm, bottom=2.5cm]{geometry}
-\usepackage[onehalfspacing]{setspace}
-\setlength{\parindent}{0pt}
-
-% input/output language
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[ngerman]{babel}
-
-% math packages
-\usepackage{amsmath, amsfonts, amsthm}
-
-\newcommand{\mysign}[2]{\phantom{|}\mathrel{\overset{\makebox[0pt]{\mbox{\tiny {#1}}}}{#2}}\phantom{|}}
-\newcommand{\myeq}[1]{\mysign{#1}{=}}
-\newcommand{\N}[0]{\mathbb{N}}
-\newcommand{\Z}[0]{\mathbb{Z}}
-\newcommand{\Q}[0]{\mathbb{Q}}
-\newcommand{\R}[0]{\mathbb{R}}
-\newcommand{\C}[0]{\mathbb{C}}
-\newcommand{\e}[0]{\varepsilon}
-\renewcommand{\Re}{\mathrm{Re}}
-\renewcommand{\Im}{\mathrm{Im}}
-\newcommand{\folge}[1]{\left(#1\right)_{n \in \N}}
-
-\newcommand{\deck}[1]{\Large{Deck: #1}}
-\newcommand{\model}[1]{\Large{Model: #1}}
-\newcommand{\next}[0]{\vspace{2ex}\rule{\textwidth}{1pt}\par\vspace{2ex}\addpenalty{-1000}}
-\renewcommand{\tag}[1]{\large{Tag #1}\par}
-\newcommand{\fields}[2]{\large{\underline{#1:}}\\#2\\}
-\newenvironment{field}[1]{\large{\underline{#1:}}\\}{\par}
-
-\begin{document}
-"#;
-const FOOTER: &str = r"\end{document}";
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Cmd {
-    Deck,
-    Model,
-    Field,
-    Next,
-    Tag,
-}
-
-mod re {
-    use crate::Cmd;
-    macro_rules! reg {
-        ($name:ident = $cmd:path = $mat:literal) => {
-            lazy_static::lazy_static! {
-                pub(super) static ref $name: (Cmd, regex::Regex) = ($cmd, regex::Regex::new($mat).unwrap());
-            }
-        };
-        ($($name:ident = $cmd:path = $mat:literal),*$(,)?) => {
-            $(reg!($name = $cmd = $mat);)*
-        }
-    }
-
-    reg![
-        DECK = Cmd::Deck = r"\\deck\{([^\}]*)\}",
-        MODEL = Cmd::Model = r"\\model\{([^\}]*)\}",
-        TAG = Cmd::Tag = r"\\tag\{([^\}]*)\}",
-        NEXT = Cmd::Next = r"\\next",
-        FIELD = Cmd::Field = r"\\fields\{([^\}]*)\}\{([^\}]*)\}",
-        FIELD_ENV = Cmd::Field = r"\\begin\{field\}\{([^\}]*)\}([\s\S]*?)\\end\{field\}",
-    ];
-
-    pub(super) fn get_all_matches(text: &str) -> Vec<(usize, crate::Cmd, Option<regex::Captures>)> {
-        let mut locations = Vec::new();
-
-        for mat in NEXT.1.find_iter(text) {
-            locations.push((mat.start(), NEXT.0, None));
-        }
-
-        for (cmd, re) in &[&*DECK, &MODEL, &TAG, &FIELD, &FIELD_ENV] {
-            for mat in re.find_iter(text) {
-                let start = mat.start();
-                let group = re.captures(&text[start..]).unwrap();
-                locations.push((start, *cmd, Some(group)));
-            }
-        }
-
-        locations.sort_by_cached_key(|(start, _, _)| *start);
-
-        locations
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Note {
-    id: Option<usize>,
-    deck: String,
-    model: String,
-    fields: HashMap<String, String>,
-    tags: Vec<String>,
-    // just for error messages
-    question: Option<String>,
-}
-
-impl Note {
-    fn question_or_fields<'a>(
-        question: &'a Option<String>,
-        fields: &'a HashMap<String, String>,
-    ) -> &'a dyn std::fmt::Debug {
-        question
-            .as_ref()
-            .map_or(fields as &dyn std::fmt::Debug, |q| {
-                q as &dyn std::fmt::Debug
-            })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct MatchUnescape(String);
-
-impl From<&String> for MatchUnescape {
-    fn from(value: &String) -> Self {
-        value.as_str().into()
-    }
-}
-
-impl From<&str> for MatchUnescape {
-    fn from(s: &str) -> Self {
-        let s = s.replace(|x: char| x.is_whitespace(), "");
-        let s = s.replace("&gt;", ">");
-        let s = s.replace("&lt;", "<");
-        Self(s)
-    }
-}
-
-impl PartialEq for Note {
-    fn eq(&self, other: &Self) -> bool {
-        let matching =
-            self.deck == other.deck && self.model == other.model && self.tags == other.tags;
-
-        let a_fields = self
-            .fields
-            .iter()
-            .filter(|(_, v)| !v.is_empty())
-            .map(|(k, v)| (MatchUnescape::from(k), MatchUnescape::from(v)))
-            .collect::<HashSet<_>>();
-        let b_fields = other
-            .fields
-            .iter()
-            .filter(|(_, v)| !v.is_empty())
-            .map(|(k, v)| (MatchUnescape::from(k), MatchUnescape::from(v)))
-            .collect::<HashSet<_>>();
-        let fields_match = a_fields == b_fields;
-
-        if let (Some(s_id), Some(o_id)) = (self.id, other.id) {
-            if s_id != o_id {
-                error!("Id differs {} != {} but contents are the same (deck {}, model {}, fields {:?}, tags {:?})",
-                    s_id, o_id, self.deck, self.model, self.fields, self.tags)
-            }
-        }
-
-        matching && fields_match
-    }
-}
-
 fn get_header_and_footer(config: &Config) -> Result<(String, String)> {
     let (header_path, footer_path) = get_template_files(config);
     let header = if header_path.is_file() {
@@ -340,156 +178,6 @@ fn create_template(config: &Config, path: &Path, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn get_longest_common_prefix(a: &str, b: &str) -> Option<usize> {
-    for (i, (c, d)) in a.chars().zip(b.chars()).enumerate() {
-        if c != d {
-            return Some(i);
-        }
-    }
-    None
-}
-
-fn get_line_with_pos(text: &str, pos: usize) -> &str {
-    let mut offset = 0;
-    for line in text.lines() {
-        offset += line.len();
-        if offset >= pos {
-            return line;
-        }
-    }
-    ""
-}
-
-fn get_content(content: String, header: &str) -> Result<Vec<Note>> {
-    let content = content.trim();
-    let content = match content.strip_prefix(header) {
-        Some(content) => content,
-        None => {
-            let longest_prefix = get_longest_common_prefix(content, header);
-            let longest_prefix_note = match longest_prefix {
-                Some(i) => {
-                    format!(
-                        "they differ at char {}: required `{}` got `{}`",
-                        i,
-                        content.chars().nth(i).unwrap(),
-                        header.chars().nth(i).unwrap(),
-                    )
-                }
-                None => {
-                    format!(
-                        "file is too short, expected min {} characters but it has {}",
-                        header.len(),
-                        content.len(),
-                    )
-                }
-            };
-            let (required_line, got_line) = match longest_prefix {
-                Some(i) => (
-                    format!("required line `{}`", get_line_with_pos(header, i)),
-                    format!("got line `{}`", get_line_with_pos(content, i)),
-                ),
-                None => Default::default(),
-            };
-            return Err(eyre!("file does not start with required header")
-                .with_note(|| {
-                    format!(
-                        "started instead with: {}",
-                        &content[..content.len().min(50)]
-                    )
-                })
-                .note(longest_prefix_note)
-                .note(required_line)
-                .note(got_line));
-        }
-    };
-    let content = match content.strip_suffix(FOOTER) {
-        Some(content) => content,
-        None => {
-            return Err(
-                eyre!("file does not end with required header").with_note(|| {
-                    format!(
-                        "ended instead with: {}",
-                        &content[content.len().max(50) - 50..]
-                    )
-                }),
-            )
-        }
-    };
-    let mut current_deck = None;
-    let mut current_model = None;
-    let mut current_tags = Vec::new();
-    let mut current_fields = HashMap::new();
-    let mut completed_notes = Vec::new();
-
-    // TODO use _start
-    for (_start, cmd, cap) in re::get_all_matches(content) {
-        match cmd {
-            Cmd::Deck => {
-                // TODO remove last unwrap
-                let new = cap.unwrap().get(1).unwrap().as_str();
-                current_deck = Some(new.to_owned());
-            }
-            Cmd::Model => {
-                // TODO remove last unwrap
-                let new = cap.unwrap().get(1).unwrap().as_str();
-                current_model = Some(new.to_owned());
-            }
-            Cmd::Tag => {
-                // TODO remove last unwrap
-                let new = cap.unwrap().get(1).unwrap().as_str().to_owned();
-                if current_tags.contains(&new) {
-                    return Err(eyre!("Can't add tag {} multiple times", new));
-                }
-                current_tags.push(new);
-            }
-            Cmd::Field => {
-                let cap = cap.unwrap();
-                // TODO remove last unwrap
-                let name = cap.get(1).unwrap().as_str().to_owned();
-                let content = cap.get(2).unwrap().as_str().to_owned();
-                if current_fields.contains_key(&name) {
-                    return Err(eyre!("Field `{}` was already added", name));
-                }
-                current_fields.insert(name, content);
-            }
-            Cmd::Next => {
-                let Some(deck) = current_deck.clone() else {
-                    return Err(eyre!("Select a deck before ending a note"));
-                };
-                let Some(model) = current_model.clone() else {
-                    return Err(eyre!("Select a model before ending a note"));
-                };
-                if current_fields.is_empty() {
-                    return Err(eyre!("Cannot add note without fields"));
-                }
-                let tags = std::mem::take(&mut current_tags);
-                let fields = std::mem::take(&mut current_fields);
-                completed_notes.push(Note {
-                    id: None,
-                    deck,
-                    model,
-                    fields,
-                    tags,
-                    question: None,
-                });
-            }
-        }
-    }
-
-    if !current_fields.is_empty() || !current_tags.is_empty() {
-        warn!(
-            "dismissing unfinished note with fields {:?}",
-            current_fields
-        );
-    }
-
-    if completed_notes.is_empty() {
-        warn!("no completed notes found");
-    }
-
-    Ok(completed_notes)
-}
-
 fn fmt_content(content: &String) -> String {
     format!(
         "[latex]{}[/latex]",
@@ -531,7 +219,7 @@ fn update_change(state: &mut State, config: &Config, file: &Path) -> Result<()> 
 
     let mut added_notes = 0;
 
-    for mut note in get_content(content, &header)? {
+    for mut note in parse_file::get_content(content, &header)? {
         // TODO id
         if !state.deck_names.contains(&note.deck) {
             error!("create note with invalid deck name {}", note.deck);
@@ -573,7 +261,7 @@ fn update_change(state: &mut State, config: &Config, file: &Path) -> Result<()> 
         );
 
         // TODO use `multi` api or `add_notes`
-        let id = add_note(&anki_tex::Note {
+        let id = add_note(&anki_tex::api::Note {
             deck_name: note.deck.clone(),
             model_name: note.model.clone(),
             fields: note.fields.clone(),
