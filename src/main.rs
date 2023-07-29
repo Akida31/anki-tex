@@ -559,6 +559,10 @@ fn update_change(state: &mut State, config: &Config, file: &Path) -> Result<()> 
             note.tags.push(String::from("generated"));
         }
 
+        if let Some(date) = &config.add_generation_date {
+            note.tags.push(date.clone());
+        }
+
         if state.added_notes.contains(&note) {
             continue;
         }
@@ -675,6 +679,9 @@ struct Args {
     /// Add a tag with the value `generated` for each new note.
     #[arg(long, default_value = "true")]
     add_generated: bool,
+    /// Add a tag with the value `generated@$date` for each new note.
+    #[arg(long, default_value = "true")]
+    add_generation_date: bool,
 
     #[command(subcommand)]
     subcommand: Commands,
@@ -785,6 +792,7 @@ struct Config {
     config: ExternalConfig,
     config_dir: PathBuf,
     add_generated: bool,
+    add_generation_date: Option<String>,
 }
 
 impl Config {
@@ -831,6 +839,9 @@ fn main() -> Result<()> {
         config,
         config_dir,
         add_generated: args.add_generated,
+        add_generation_date: args
+            .add_generation_date
+            .then(|| format!("{}", chrono::Local::now().format("%Y-%m-%d"))),
     };
 
     // update the args
