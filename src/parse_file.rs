@@ -6,8 +6,8 @@ use color_eyre::{
 use std::collections::HashMap;
 use tracing::warn;
 
-pub const ANKITEX: &str = include_str!("ankitex.sty");
-pub const CUSTOM_TEMPLATE: &str = include_str!("custom.sty");
+pub const ANKITEX: &str = include_str!("../templates/ankitex.sty");
+pub const CUSTOM_TEMPLATE: &str = include_str!("../templates/custom.sty");
 
 pub const HEADER: &str = r"\documentclass{article}
 \usepackage{ankitex}
