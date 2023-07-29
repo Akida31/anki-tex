@@ -40,7 +40,7 @@ impl State {
         let model_names = get_model_names()?.0;
         get_model_field_names_multi(model_names.iter().map(|n| n.as_str()))?
             .into_iter()
-            .zip(model_names.into_iter())
+            .zip(model_names)
             .map(|(field_names, name)| {
                 Ok((
                     name,
@@ -515,7 +515,7 @@ fn update_change(state: &mut State, config: &Config, file: &Path) -> Result<()> 
 
         return Ok(());
     }
-    let content = read_to_string(&file)
+    let content = read_to_string(file)
         .with_note(|| eyre!("while reading file {}", file.to_string_lossy()))?;
     let new_hash = fasthash::metro::hash64(&content);
     if new_hash != state.last_hash {
@@ -731,7 +731,7 @@ impl<'de> Deserialize<'de> for RegexString {
 
         let re = Regex::new(&re_str).map_err(D::Error::custom)?;
 
-        Ok(RegexString { re, re_str })
+        Ok(Self { re, re_str })
     }
 }
 
@@ -756,7 +756,7 @@ impl ExternalConfig {
         }
         let config_path = config_dir.join("config.toml");
 
-        let config: ExternalConfig = if !config_path.is_file() {
+        let config: Self = if !config_path.is_file() {
             info!(
                 "no config file found. You can create one at {}",
                 config_path.to_string_lossy()
