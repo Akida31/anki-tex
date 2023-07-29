@@ -182,6 +182,21 @@ fn create_template(config: &Config, paths: &FilePaths, force: bool) -> Result<()
         }
     }
 
+    {
+        debug!("marking `ankitex.sty` as readonly");
+        if let Ok(m) = std::fs::metadata(&paths.anki) {
+            let mut perms = m.permissions();
+            perms.set_readonly(true);
+            if let Err(e) = std::fs::set_permissions(&paths.anki, perms) {
+                info!(
+                    "failed to mark {} as readonly: {}",
+                    paths.anki.to_string_lossy(),
+                    e
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
