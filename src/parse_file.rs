@@ -1,7 +1,10 @@
-use std::collections::HashMap;
-use color_eyre::{Help, eyre::{eyre, Result}};
-use tracing::warn;
 use crate::Note;
+use color_eyre::{
+    eyre::{eyre, Result},
+    Help,
+};
+use std::collections::HashMap;
+use tracing::warn;
 
 pub const ANKITEX: &str = include_str!("ankitex.sty");
 pub const CUSTOM_TEMPLATE: &str = include_str!("custom.sty");
@@ -13,6 +16,8 @@ pub const HEADER: &str = r"\documentclass{article}
 \begin{document}
 ";
 pub const FOOTER: &str = r"\end{document}";
+pub const NEWCOMMAND: &str = r"\newcommand";
+pub const RENEWCOMMAND: &str = r"\renewcommand";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Cmd {
@@ -119,6 +124,17 @@ pub fn get_content(content: String) -> Result<Vec<Note>> {
         }
     };
 
+    for (name, pat) in [("newcommand", NEWCOMMAND), ("renewcommand", RENEWCOMMAND)] {
+        if let Some(start) = content.find(pat) {
+            let (_, part) = content.split_at(start);
+            let part = part.lines().next().unwrap_or(part);
+            warn!(
+                "{} `{}` will be ignored by anki. Move it to `custom.sty`.",
+                name, part,
+            );
+        }
+    }
+
     let mut current_deck = None;
     let mut current_model = None;
     let mut current_tags = Vec::new();
@@ -213,4 +229,3 @@ fn get_line_with_pos(text: &str, pos: usize) -> &str {
     }
     ""
 }
-
