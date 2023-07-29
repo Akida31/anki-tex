@@ -3,7 +3,7 @@ use color_eyre::{
     eyre::{eyre, Result},
     Help,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 use tracing::warn;
 
 pub const ANKITEX: &str = include_str!("../templates/ankitex.sty");
@@ -66,6 +66,21 @@ fn get_all_matches(text: &str) -> Vec<(usize, Cmd, Option<regex::Captures>)> {
     locations.sort_by_cached_key(|(start, _, _)| *start);
 
     locations
+}
+
+pub fn check_ankitex_template(path: &Path) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_note(|| eyre!("while reading file {}", path.to_string_lossy()))?;
+
+    if content != ANKITEX {
+        return Err(eyre!(
+            "invalid content of {}. Don't modify this file but `custom.sty` instead",
+            path.to_string_lossy()
+        )
+        .with_note(|| "You can generate a valid `ankitex.sty` file with `anki-tex template`"));
+    }
+
+    Ok(())
 }
 
 fn prepare_content(content: String) -> Result<String> {

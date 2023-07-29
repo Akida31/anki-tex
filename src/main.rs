@@ -237,6 +237,9 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
     let main_content = read_to_string(&paths.main)
         .with_note(|| eyre!("while reading file {}", paths.main.to_string_lossy()))?;
 
+
+    parse_file::check_ankitex_template(&paths.anki)?;
+
     // TODO do something with paths.custom. E.g. check that it is correctly set as template
 
     let new_main_hash = fasthash::metro::hash64(&main_content);
