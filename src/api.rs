@@ -65,7 +65,7 @@ pub fn create_deck(deck: &str) -> Result<Option<usize>> {
         deck: &'a str,
     }
 
-    request("createDeck", &Params {deck})
+    request("createDeck", &Params { deck })
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +111,16 @@ pub struct NoteInfo {
     pub fields: HashMap<String, NoteInfoField>,
     pub tags: Vec<String>,
     pub cards: Vec<usize>,
+}
+
+pub fn add_notes(notes: &[Note]) -> Result<Vec<Option<usize>>> {
+    #[derive(Debug, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NoteParams<'a> {
+        notes: &'a [Note],
+    }
+
+    request("addNotes", &NoteParams { notes })
 }
 
 /// Returns
