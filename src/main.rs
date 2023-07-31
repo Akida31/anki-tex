@@ -258,7 +258,13 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
     state.reload()?;
 
     let mut note_decks: HashMap<String, (Vec<_>, Vec<_>)> = HashMap::new();
-    for mut note in parse_file::get_content(main_content)? {
+
+    debug!("parsing file {}", paths.main.to_string_lossy());
+    let notes = parse_file::get_content(main_content)?;
+    debug!("finished parsing file");
+
+    debug!("checking notes");
+    for mut note in notes {
         let Some(model) = state.models.get(&note.model) else {
             error!("create note with invalid model name {}", note.model);
             return Ok(());
@@ -300,6 +306,7 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
         notes.push(note);
         api_notes.push(api_note);
     }
+    debug!("checked notes");
 
     let mut global_added_notes = 0;
 

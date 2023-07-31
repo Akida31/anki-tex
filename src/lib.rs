@@ -61,6 +61,13 @@ impl PartialEq for Note {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref UNESCAPER: aho_corasick::AhoCorasick = aho_corasick::AhoCorasick::new([
+        "&gt;",
+        "&lt;",
+    ]).unwrap();
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MatchUnescape(String);
 
@@ -72,11 +79,9 @@ impl From<&String> for MatchUnescape {
 
 impl From<&str> for MatchUnescape {
     fn from(s: &str) -> Self {
-        let s = s.replace(|x: char| x.is_whitespace(), "");
-        let s = s.replace("&gt;", ">");
-        let s = s.replace("&lt;", "<");
-        Self(s)
+        // TODO: enable this?
+        //let s = s.replace(|x: char| x.is_whitespace(), "");
+        let result = UNESCAPER.replace_all(s, &[">", "<"]);
+        Self(result)
     }
 }
-
-

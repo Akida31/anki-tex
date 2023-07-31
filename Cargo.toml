@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aho-corasick = "1.0.2"
 chrono = "0.4.26"
 clap = { version = "4.1.4", features = ["derive"] }
 color-eyre = "0.6.2"

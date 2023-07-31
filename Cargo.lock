@@ -45,6 +45,7 @@ dependencies = [
 name = "anki-tex"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "chrono",
  "clap",
  "color-eyre",
