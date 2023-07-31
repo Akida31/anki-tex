@@ -349,7 +349,7 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
             );
         }
         if added_notes != 0 {
-            info!("added {} new notes", added_notes);
+            info!("added {} new notes in deck {}", added_notes, deck);
             global_added_notes += added_notes;
         }
     }
