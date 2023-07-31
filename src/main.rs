@@ -79,11 +79,14 @@ fn get_notes(query: &str) -> Result<Vec<Note>> {
     let ids = find_notes(query)?;
     info!("getting {} notes", ids.len());
     let notes = notes_info(&ids)?;
+    debug!("got notes");
     let card_ids = notes
         .iter()
         .flat_map(|note_info| note_info.cards.clone())
         .collect::<Vec<_>>();
+    debug!("getting card info of {} cards", card_ids.len());
     let cards = cards_info(&card_ids)?;
+    debug!("got card info");
     assert_eq!(card_ids.len(), cards.len());
     let mut cards = cards.into_iter();
 
@@ -237,7 +240,6 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
     let main_content = read_to_string(&paths.main)
         .with_note(|| eyre!("while reading file {}", paths.main.to_string_lossy()))?;
 
-
     parse_file::check_ankitex_template(&paths.anki)?;
 
     // TODO do something with paths.custom. E.g. check that it is correctly set as template
@@ -255,22 +257,12 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
     info!("updating changes from {}", paths.main.to_string_lossy());
     state.reload()?;
 
-    let mut added_notes = 0;
-
+    let mut note_decks: HashMap<String, (Vec<_>, Vec<_>)> = HashMap::new();
     for mut note in parse_file::get_content(main_content)? {
-        // TODO id
-        if !state.deck_names.contains(&note.deck) {
-            error!("create note with invalid deck name {}", note.deck);
-            info!("create all decks in the file with `anki-tex create-all-decks`");
-            return Ok(());
-        }
         let Some(model) = state.models.get(&note.model) else {
             error!("create note with invalid model name {}", note.model);
             return Ok(());
         };
-        for field in note.fields.values_mut() {
-            *field = fmt_content(field);
-        }
         for field_name in note.fields.keys() {
             if !model.field_names.contains(field_name) {
                 error!(
@@ -293,32 +285,72 @@ fn update_change(state: &mut State, config: &Config, paths: &FilePaths) -> Resul
         if state.added_notes.contains(&note) {
             continue;
         }
-        info!(
-            "creating note in deck {} with fields {:?}",
-            &note.deck,
-            Note::question_or_fields(&note.question, &note.fields),
-        );
 
-        // TODO use `multi` api or `add_notes`
-        let id = add_note(&anki_tex::api::Note {
+        for field in note.fields.values_mut() {
+            *field = fmt_content(field);
+        }
+        let api_note = anki_tex::api::Note {
             deck_name: note.deck.clone(),
             model_name: note.model.clone(),
             fields: note.fields.clone(),
             tags: note.tags.clone(),
-        })?;
-        if id.is_none() {
-            info!("Duplicate! Note in deck {} already existed", &note.deck,);
-        } else {
-            added_notes += 1;
-        }
-        note.id = id;
-        state.added_notes.push(note);
+        };
+
+        let (notes, api_notes) = note_decks.entry(note.deck.clone()).or_default();
+        notes.push(note);
+        api_notes.push(api_note);
     }
 
-    if added_notes == 0 {
+    let mut global_added_notes = 0;
+
+    for (deck, (notes, api_notes)) in note_decks {
+        // TODO id
+        if !state.deck_names.contains(&deck) {
+            error!("create note with invalid deck name {}", deck);
+            info!("create all decks in the file with `anki-tex create-all-decks`");
+            return Ok(());
+        }
+        info!("creating {} notes in deck {}", notes.len(), deck);
+
+        let mut duplicates = 0;
+        let mut added_notes = 0;
+        let ids = add_notes(&api_notes)?;
+        for (id, mut note) in ids.into_iter().zip(notes) {
+            if id.is_none() {
+                duplicates += 1;
+                debug!(
+                    "Duplicate! Note in deck {} with fields {:?} already existed",
+                    &note.deck,
+                    Note::question_or_fields(&note.question, &note.fields),
+                );
+            } else {
+                added_notes += 1;
+                debug!(
+                    "created note in deck {} with fields {:?}",
+                    &note.deck,
+                    Note::question_or_fields(&note.question, &note.fields),
+                );
+            }
+            note.id = id;
+            state.added_notes.push(note);
+        }
+
+        if duplicates != 0 {
+            info!(
+                "Duplicates! {} Notes in deck {} already existed",
+                duplicates, deck
+            );
+        }
+        if added_notes != 0 {
+            info!("added {} new notes", added_notes);
+            global_added_notes += added_notes;
+        }
+    }
+
+    if global_added_notes == 0 {
         info!("nothing to do :)");
     } else {
-        info!("added {} new notes", added_notes);
+        info!("added {} new notes", global_added_notes);
     }
 
     Ok(())
