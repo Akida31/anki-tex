@@ -230,7 +230,44 @@ pub fn cards_info(ids: &[usize]) -> Result<Vec<CardInfo>> {
 }
 
 pub fn render_all_latex() -> Result<bool> {
-    request("renderAllLatex", &empty())
+    let res = request("renderAllLatex", &empty());
+    match res {
+        Err(e) => {
+            let cause = e.root_cause().to_string();
+            // TODO: don't hardcode this
+            let Some(suffix) =
+                cause.strip_prefix("anki returned an error: Can't render note with id ")
+            else {
+                debug!("invalid prefix");
+                return Err(e);
+            };
+            let n = if let Some((n, _)) = suffix.split_once(':') {
+                match n.parse() {
+                    Ok(v) => v,
+                    Err(_) => return Err(e),
+                }
+            } else {
+                debug!("invalid format");
+                return Err(e);
+            };
+            let Ok(info) = notes_info(&[n]) else {
+                debug!("can't request note info");
+                return Err(e);
+            };
+            Err(e.with_note(|| {
+                let mut fields: Vec<_> = info[0].fields.iter().collect();
+                fields.sort_by_key(|f| f.1.order);
+
+                let fields = fields
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.value))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("fields of note: {}", fields)
+            }))
+        }
+        v @ Ok(_) => v,
+    }
 }
 
 pub fn sync() -> Result<()> {
