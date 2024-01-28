@@ -13,9 +13,13 @@ pub fn request<'a, T: Serialize + 'a, U: for<'de> Deserialize<'de> + std::fmt::D
     let action = action.into();
 
     debug!("requesting action {}", action);
-    let request = Request::new(action, data);
+    let request = Request::new(action.clone(), data);
     let client = reqwest::blocking::Client::new();
-    let res = client.post("http://localhost:8765").json(&request).send()?;
+    let res = client
+        .post("http://localhost:8765")
+        .json(&request)
+        .send()
+        .with_note(|| format!("action was {}", action))?;
 
     debug!("got response with status {}", res.status());
     let bytes = res.bytes()?;
