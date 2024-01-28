@@ -674,7 +674,7 @@ fn main() -> Result<()> {
             let notes_len = notes.len();
 
             for note in notes {
-                println!("In deck {} with model {}", note.deck, note.model);
+                println!("In deck '{}' with model '{}'", note.deck, note.model);
                 for (k, v) in note.fields {
                     let v = v.replace("[latex]", "");
                     let v = v.replace("[/latex]", "");
@@ -683,7 +683,7 @@ fn main() -> Result<()> {
                 if !note.tags.is_empty() {
                     println!("Tags: {}", note.tags.join(", "));
                 }
-                println!("{}", "-".repeat(80));
+                println!("{}", "-".repeat(100));
             }
 
             println!("fetched {} notes in total", notes_len);
