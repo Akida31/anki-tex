@@ -25,7 +25,7 @@ pub fn request<'a, T: Serialize + 'a, U: for<'de> Deserialize<'de> + std::fmt::D
     let bytes = res.bytes()?;
     let res: std::result::Result<types::ReqResult<U>, _> = serde_json::from_slice(&bytes);
     match res {
-        Ok(v) => v.get(),
+        Ok(v) => v.get().with_note(|| format!("action was {}", action)),
         Err(e) => Result::Err(e).with_note(|| format!("body: {}", String::from_utf8_lossy(&bytes))),
     }
 }

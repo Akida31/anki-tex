@@ -30,6 +30,7 @@ pub enum ReqResult<T> {
     Raw(T),
     Struct(ReqResultStruct<T>),
 }
+
 impl<T: std::fmt::Debug> ReqResult<T> {
     pub fn get(self) -> Result<T> {
         match self {
